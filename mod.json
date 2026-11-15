@@ -1,0 +1,35 @@
+{
+	"geode": "5.11.2",
+	"gd": {
+		"win": "2.2081",
+		"android": "2.2081",
+		"mac": "2.2081",
+		"ios": "2.2081"
+	},
+	"id": "yourname.panceta-levels-list",
+	"name": "Panceta Levels List",
+	"version": "v1.0.0",
+	"developer": "YourName",
+	"description": "Browse the Panceta Levels List (PLL) and GPLL in-game.",
+	"tags": ["online", "interface", "utility"],
+	"settings": {
+		"pll-api-url": {
+			"name": "PLL API URL",
+			"description": "JSON endpoint the PLL tab loads its levels from.",
+			"type": "string",
+			"default": "https://pll-plus.levelslist.workers.dev/api/levels"
+		},
+		"gpll-api-url": {
+			"name": "GPLL API URL",
+			"description": "JSON endpoint for the GPLL tab (same format as PLL). Leave empty until the GPLL exists.",
+			"type": "string",
+			"default": ""
+		},
+		"show-upll": {
+			"name": "Show UPLL-only levels",
+			"description": "Also show levels that are only on the UPLL (above the PLL skill cap).",
+			"type": "bool",
+			"default": true
+		}
+	}
+}

@@ -8,22 +8,34 @@
 	},
 	"id": "yourname.panceta-levels-list",
 	"name": "Panceta Levels List",
-	"version": "v1.0.0",
+	"version": "v1.1.0",
 	"developer": "YourName",
 	"description": "Browse the Panceta Levels List (PLL) and GPLL in-game.",
-	"tags": ["online", "interface", "utility"],
+	"tags": [
+		"online",
+		"interface",
+		"utility"
+	],
 	"settings": {
-		"pll-api-url": {
+		"pll-api-base": {
 			"name": "PLL API URL",
-			"description": "JSON endpoint the PLL tab loads its levels from.",
+			"description": "Base API URL of the PLL website (the mod reads /levels and /levels/{id} from it).",
 			"type": "string",
-			"default": "https://pll-plus.levelslist.workers.dev/api/levels"
+			"default": "https://pll-plus.levelslist.workers.dev/api"
 		},
-		"gpll-api-url": {
+		"gpll-api-base": {
 			"name": "GPLL API URL",
-			"description": "JSON endpoint for the GPLL tab (same format as PLL). Leave empty until the GPLL exists.",
+			"description": "Base API URL of the GPLL website (same format as PLL). Leave empty until the GPLL exists.",
 			"type": "string",
 			"default": ""
+		},
+		"refresh-interval": {
+			"name": "Live refresh (seconds)",
+			"description": "How often the open list refreshes itself from the website. 0 = only when you press refresh.",
+			"type": "int",
+			"default": 60,
+			"min": 0,
+			"max": 600
 		},
 		"show-upll": {
 			"name": "Show UPLL-only levels",

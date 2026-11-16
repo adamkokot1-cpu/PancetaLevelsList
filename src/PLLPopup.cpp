@@ -1,53 +1,38 @@
 #include "PLLPopup.hpp"
+#include "VictorsPopup.hpp"
+#include "Json.hpp"
 
 #include <array>
 #include <optional>
 #include <algorithm>
 
+using namespace pll;
+
 namespace {
     constexpr float POPUP_W = 440.f;
     constexpr float POPUP_H = 290.f;
     constexpr float SCROLL_W = 400.f;
-    constexpr float SCROLL_H = 192.f;
+    constexpr float SCROLL_H = 186.f;
     constexpr float ROW_H = 42.f;
     constexpr float HEADER_H = 26.f;
     constexpr float GAP = 3.f;
 
-    // Cached list per tab, so reopening the popup does not refetch.
+    // Last fetched list per tab. Shown instantly while fresh data is downloading.
     std::array<std::optional<ListData>, 2> s_cache;
-
-    std::string jstr(matjson::Value const& v, std::string_view key) {
-        if (!v.contains(key)) return "";
-        return v[key].asString().unwrapOr("");
-    }
-
-    int jint(matjson::Value const& v, std::string_view key) {
-        if (!v.contains(key)) return 0;
-        return static_cast<int>(v[key].asInt().unwrapOr(0));
-    }
-
-    double jnum(matjson::Value const& v, std::string_view key) {
-        if (!v.contains(key)) return 0.0;
-        return v[key].asDouble().unwrapOr(0.0);
-    }
 
     ListData parseList(matjson::Value const& json) {
         ListData data;
 
         if (json.contains("categories") && json["categories"].isArray()) {
             for (auto const& c : json["categories"]) {
-                data.categories.push_back({
-                    jstr(c, "key"),
-                    jstr(c, "name"),
-                    jint(c, "from"),
-                    jint(c, "to"),
-                });
+                data.categories.push_back({ jstr(c, "key"), jstr(c, "name"), jint(c, "from"), jint(c, "to") });
             }
         }
 
         if (json.contains("levels") && json["levels"].isArray()) {
             for (auto const& l : json["levels"]) {
                 ListLevel lvl;
+                lvl.siteId = jint(l, "id");
                 lvl.position = jint(l, "position");
                 lvl.upllPosition = jint(l, "upll_position");
                 lvl.name = jstr(l, "name");
@@ -62,10 +47,14 @@ namespace {
                 lvl.upllPoints = jnum(l, "upll_points");
                 lvl.requirement = jint(l, "requirement");
                 lvl.completions = jint(l, "completions");
-                if (!lvl.name.empty()) data.levels.push_back(std::move(lvl));
+                if (lvl.name.empty()) continue;
+
+                data.signature += fmt::format("{}|{}|{}|{}|{:.2f};", lvl.siteId, lvl.name, lvl.position, lvl.completions, lvl.points);
+                data.levels.push_back(std::move(lvl));
             }
         }
 
+        data.fetchedAt = nowString();
         return data;
     }
 
@@ -84,6 +73,9 @@ namespace {
             default: return { 255, 255, 255 };
         }
     }
+
+    bool byPosition(ListLevel const* a, ListLevel const* b) { return a->position < b->position; }
+    bool byUpllPosition(ListLevel const* a, ListLevel const* b) { return a->upllPosition < b->upllPosition; }
 }
 
 PLLPopup* PLLPopup::create() {
@@ -135,7 +127,7 @@ bool PLLPopup::initPopup() {
 
     // --- List area ---
     float scrollX = (size.width - SCROLL_W) / 2.f;
-    float scrollY = 18.f;
+    float scrollY = 24.f;
 
     auto bg = CCScale9Sprite::create("square02b_001.png", { 0, 0, 80, 80 });
     bg->setColor({ 0, 0, 0 });
@@ -159,7 +151,19 @@ bool PLLPopup::initPopup() {
     m_status->setPosition({ size.width / 2.f, scrollY + SCROLL_H / 2.f });
     m_mainLayer->addChild(m_status, 10);
 
-    this->load(false);
+    m_updated = CCLabelBMFont::create("", "chatFont.fnt");
+    m_updated->setScale(.45f);
+    m_updated->setColor({ 200, 200, 200 });
+    m_updated->setPosition({ size.width / 2.f, 12.f });
+    m_mainLayer->addChild(m_updated);
+
+    this->showTab();
+
+    // Live updates while the popup is open
+    auto interval = Mod::get()->getSettingValue<int64_t>("refresh-interval");
+    if (interval > 0) {
+        this->schedule(schedule_selector(PLLPopup::onAutoRefresh), static_cast<float>(interval));
+    }
     return true;
 }
 
@@ -171,11 +175,15 @@ void PLLPopup::onTab(CCObject* sender) {
     m_pllTabSpr->updateBGImage(tab == ListTab::PLL ? "GJ_button_01.png" : "GJ_button_04.png");
     m_gpllTabSpr->updateBGImage(tab == ListTab::GPLL ? "GJ_button_01.png" : "GJ_button_04.png");
 
-    this->load(false);
+    this->showTab();
 }
 
 void PLLPopup::onRefresh(CCObject*) {
-    this->load(true);
+    this->fetch();
+}
+
+void PLLPopup::onAutoRefresh(float) {
+    this->fetch();
 }
 
 void PLLPopup::onView(CCObject* sender) {
@@ -191,47 +199,67 @@ void PLLPopup::onVideo(CCObject* sender) {
     web::openLinkInBrowser(m_videos[idx]);
 }
 
+void PLLPopup::onVictors(CCObject* sender) {
+    int idx = static_cast<CCNode*>(sender)->getTag();
+    if (idx < 0 || idx >= static_cast<int>(m_rowLevels.size())) return;
+    auto const& lvl = m_rowLevels[idx];
+    if (lvl.siteId <= 0) return;
+
+    auto url = fmt::format("{}/levels/{}", apiBase(m_tab == ListTab::GPLL), lvl.siteId);
+    if (auto popup = VictorsPopup::create(url, lvl.name)) popup->show();
+}
+
 void PLLPopup::setStatus(std::string const& text) {
     m_status->setString(text.c_str());
     m_status->setVisible(!text.empty());
+}
+
+void PLLPopup::setUpdated(std::string const& text) {
+    m_updated->setString(text.c_str());
 }
 
 void PLLPopup::clearList() {
     m_scroll->m_contentLayer->removeAllChildren();
     m_scroll->m_contentLayer->setContentSize({ SCROLL_W, SCROLL_H });
     m_videos.clear();
+    m_rowLevels.clear();
+    m_shownSignature.clear();
 }
 
-void PLLPopup::load(bool force) {
-    auto idx = static_cast<size_t>(m_tab);
-
-    if (!force && s_cache[idx]) {
-        this->populate(*s_cache[idx]);
-        return;
-    }
-
-    auto url = Mod::get()->getSettingValue<std::string>(
-        m_tab == ListTab::PLL ? "pll-api-url" : "gpll-api-url"
-    );
-
-    this->clearList();
+// Show cached data for the current tab right away, then fetch fresh data.
+void PLLPopup::showTab() {
     m_listener.cancel();
+    this->clearList();
 
-    if (url.empty()) {
+    auto idx = static_cast<size_t>(m_tab);
+    if (s_cache[idx]) {
+        this->populate(*s_cache[idx]);
+    } else {
+        this->setStatus("Loading...");
+    }
+    this->fetch();
+}
+
+void PLLPopup::fetch() {
+    auto base = apiBase(m_tab == ListTab::GPLL);
+
+    if (base.empty()) {
+        this->clearList();
+        this->setUpdated("");
         this->setStatus(m_tab == ListTab::GPLL
             ? "GPLL is coming soon!\nNo levels yet."
             : "No PLL API URL set\n(check mod settings).");
         return;
     }
 
-    this->setStatus("Loading...");
+    this->setUpdated("Updating...");
 
     auto req = web::WebRequest();
     req.userAgent("PancetaLevelsList Geode mod");
 
     auto tab = static_cast<int>(m_tab);
     m_listener.spawn(
-        req.get(url),
+        req.get(base + "/levels"),
         [this, tab](web::WebResponse res) {
             this->onResponse(tab, res);
         }
@@ -239,31 +267,52 @@ void PLLPopup::load(bool force) {
 }
 
 void PLLPopup::onResponse(int tab, web::WebResponse const& res) {
-    bool current = static_cast<int>(m_tab) == tab;
+    if (static_cast<int>(m_tab) != tab) return;
+    auto idx = static_cast<size_t>(tab);
+    bool hasData = s_cache[idx].has_value();
 
     if (!res.ok()) {
-        if (current) {
-            if (res.code() == 0) {
-                this->setStatus("Network error.\nPress refresh to try again.");
-            } else {
-                this->setStatus(fmt::format("Failed to load list (HTTP {}).", res.code()));
-            }
+        std::string err = res.code() == 0
+            ? std::string("Network error")
+            : fmt::format("Error HTTP {}", res.code());
+        if (hasData) {
+            this->setUpdated(fmt::format("{} - showing data from {}", err, s_cache[idx]->fetchedAt));
+        } else {
+            this->setUpdated("");
+            this->setStatus(err + ".\nPress refresh to try again.");
         }
         return;
     }
 
     auto parsed = res.json();
     if (parsed.isErr()) {
-        if (current) this->setStatus("Could not read list data.");
+        if (!hasData) this->setStatus("Could not read list data.");
+        this->setUpdated("Could not read list data");
         return;
     }
 
-    s_cache[static_cast<size_t>(tab)] = parseList(parsed.unwrap());
-    if (current) this->populate(*s_cache[static_cast<size_t>(tab)]);
+    s_cache[idx] = parseList(parsed.unwrap());
+    this->populate(*s_cache[idx]);
 }
 
 void PLLPopup::populate(ListData const& data) {
-    this->clearList();
+    auto interval = Mod::get()->getSettingValue<int64_t>("refresh-interval");
+    this->setUpdated(interval > 0
+        ? fmt::format("Live - updated {} (every {}s)", data.fetchedAt, interval)
+        : fmt::format("Updated {}", data.fetchedAt));
+
+    // Nothing changed on the website: keep the list (and scroll position) as is.
+    if (!m_shownSignature.empty() && data.signature == m_shownSignature) return;
+
+    auto content = m_scroll->m_contentLayer;
+    bool first = m_shownSignature.empty();
+    float oldH = content->getContentSize().height;
+    float offset = content->getPositionY() - (SCROLL_H - oldH);
+
+    content->removeAllChildren();
+    m_videos.clear();
+    m_rowLevels.clear();
+    m_shownSignature = data.signature;
 
     std::vector<ListLevel const*> mainLevels;
     std::vector<ListLevel const*> upllLevels;
@@ -271,8 +320,8 @@ void PLLPopup::populate(ListData const& data) {
         if (lvl.position > 0) mainLevels.push_back(&lvl);
         else if (lvl.list == "upll") upllLevels.push_back(&lvl);
     }
-    std::sort(mainLevels.begin(), mainLevels.end(), [](ListLevel const* a, ListLevel const* b) { return a->position < b->position; });
-    std::sort(upllLevels.begin(), upllLevels.end(), [](ListLevel const* a, ListLevel const* b) { return a->upllPosition < b->upllPosition; });
+    std::sort(mainLevels.begin(), mainLevels.end(), byPosition);
+    std::sort(upllLevels.begin(), upllLevels.end(), byUpllPosition);
 
     bool showUpll = Mod::get()->getSettingValue<bool>("show-upll");
 
@@ -304,6 +353,7 @@ void PLLPopup::populate(ListData const& data) {
     }
 
     if (nodes.empty()) {
+        content->setContentSize({ SCROLL_W, SCROLL_H });
         this->setStatus("No levels on this list yet.");
         return;
     }
@@ -312,8 +362,6 @@ void PLLPopup::populate(ListData const& data) {
     float total = GAP;
     for (auto n : nodes) total += n->getContentSize().height + GAP;
     float height = std::max(total, SCROLL_H);
-
-    auto content = m_scroll->m_contentLayer;
     content->setContentSize({ SCROLL_W, height });
 
     float y = height - GAP;
@@ -324,7 +372,12 @@ void PLLPopup::populate(ListData const& data) {
         y -= h + GAP;
     }
 
-    m_scroll->moveToTop();
+    if (first) {
+        m_scroll->moveToTop();
+    } else {
+        float minY = SCROLL_H - height;
+        content->setPositionY(std::clamp(minY + offset, minY, 0.f));
+    }
 }
 
 CCNode* PLLPopup::createHeader(std::string const& text, float width) {
@@ -384,7 +437,7 @@ CCNode* PLLPopup::createRow(ListLevel const& level, float width, bool alt) {
     sub->setPosition({ 50.f, ROW_H * .27f });
     node->addChild(sub);
 
-    // Points + stats
+    // Points
     double pts = upllOnly ? level.upllPoints : level.points;
     auto points = CCLabelBMFont::create(fmt::format("{:.2f} pts", pts).c_str(), "goldFont.fnt");
     points->setAnchorPoint({ 1.f, .5f });
@@ -392,22 +445,25 @@ CCNode* PLLPopup::createRow(ListLevel const& level, float width, bool alt) {
     points->setPosition({ w - 80.f, ROW_H * .66f });
     node->addChild(points);
 
-    std::string statText = level.requirement > 0
-        ? fmt::format("List% {}%  |  {} victors", level.requirement, level.completions)
-        : fmt::format("{} victors", level.completions);
-    auto stats = CCLabelBMFont::create(statText.c_str(), "chatFont.fnt");
-    stats->setAnchorPoint({ 1.f, .5f });
-    stats->setScale(.45f);
-    stats->limitLabelWidth(100.f, .45f, .15f);
-    stats->setColor({ 200, 200, 200 });
-    stats->setPosition({ w - 80.f, ROW_H * .27f });
-    node->addChild(stats);
-
-    // Buttons
     auto menu = CCMenu::create();
     menu->setPosition({ 0.f, 0.f });
     menu->setContentSize({ w, ROW_H });
     node->addChild(menu);
+
+    // Stats: clickable, opens the victors list
+    std::string statText = level.requirement > 0
+        ? fmt::format("List% {}%  |  {} victors >", level.requirement, level.completions)
+        : fmt::format("{} victors >", level.completions);
+    auto stats = CCLabelBMFont::create(statText.c_str(), "chatFont.fnt");
+    stats->setScale(.45f);
+    stats->limitLabelWidth(110.f, .45f, .15f);
+    stats->setColor({ 120, 200, 255 });
+    auto statsBtn = CCMenuItemSpriteExtra::create(stats, this, menu_selector(PLLPopup::onVictors));
+    statsBtn->setTag(static_cast<int>(m_rowLevels.size()));
+    m_rowLevels.push_back(level);
+    float statsW = stats->getScaledContentSize().width;
+    statsBtn->setPosition({ w - 80.f - statsW / 2.f, ROW_H * .27f });
+    menu->addChild(statsBtn);
 
     if (!level.video.empty()) {
         auto ytSpr = CCSprite::createWithSpriteFrameName("gj_ytIcon_001.png");

@@ -7,6 +7,7 @@
 using namespace geode::prelude;
 
 struct ListLevel {
+    int siteId = 0;         // id on the list website (used for /levels/{id})
     int position = 0;       // main/extended position, 0 if UPLL-only
     int upllPosition = 0;
     std::string name;
@@ -33,6 +34,8 @@ struct ListCategory {
 struct ListData {
     std::vector<ListLevel> levels;
     std::vector<ListCategory> categories;
+    std::string signature;  // used to detect changes between refreshes
+    std::string fetchedAt;
 };
 
 enum class ListTab { PLL = 0, GPLL = 1 };
@@ -44,21 +47,28 @@ protected:
 
     ScrollLayer* m_scroll = nullptr;
     CCLabelBMFont* m_status = nullptr;
+    CCLabelBMFont* m_updated = nullptr;
     ButtonSprite* m_pllTabSpr = nullptr;
     ButtonSprite* m_gpllTabSpr = nullptr;
     std::vector<std::string> m_videos;
+    std::vector<ListLevel> m_rowLevels;
+    std::string m_shownSignature;
 
     bool initPopup();
 
     void onTab(CCObject* sender);
     void onRefresh(CCObject*);
+    void onAutoRefresh(float);
     void onView(CCObject* sender);
     void onVideo(CCObject* sender);
+    void onVictors(CCObject* sender);
 
-    void load(bool force);
+    void showTab();
+    void fetch();
     void onResponse(int tab, web::WebResponse const& res);
     void populate(ListData const& data);
     void setStatus(std::string const& text);
+    void setUpdated(std::string const& text);
     void clearList();
 
     CCNode* createHeader(std::string const& text, float width);

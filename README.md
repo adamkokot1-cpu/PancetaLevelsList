@@ -9,12 +9,13 @@ Mod do Geometry Dash (Geode v5, GD 2.2081), który pokazuje w grze listę PLL i 
   (to ten sam endpoint, z którego korzysta strona /list), pogrupowane wg kategorii
   (Hardest, High, Mid, Low, Extended, UPLL only), z punktami, List%, liczbą victorów.
 - **View** otwiera level w wyszukiwarce GD, ikona YT otwiera film.
-- Przycisk odświeżania; dane są cache'owane do zamknięcia gry.
+- Lista jest **na żywo**: przy każdym otwarciu pobiera świeże dane, a gdy okno jest otwarte, odświeża się sama co 60 s (ustawienie `refresh-interval`). Nie skacze przy tym na górę listy.
+- Kliknięcie **"X victors >"** pokazuje listę victorów levela (z `/api/levels/{id}`): nick, kraj, verifier, link do filmu. Ona też odświeża się sama.
 - GPLL: na razie "coming soon".
 
 ## Jak dodać GPLL później
 Najprościej: jeśli GPLL będzie mieć API w tym samym formacie co PLL (`{ "levels": [...], "categories": [...] }`),
-wpisz jego URL jako domyślną wartość `gpll-api-url` w `mod.json` (albo w ustawieniach moda w grze) – nic więcej nie trzeba zmieniać.
+wpisz jego bazowy adres API (np. `https://.../api`) jako domyślną wartość `gpll-api-base` w `mod.json` (albo w ustawieniach moda w grze) – nic więcej nie trzeba zmieniać.
 
 ## Budowanie
 **Najłatwiej przez GitHub:** wrzuć ten folder do nowego repo na GitHubie. Workflow w `.github/workflows`

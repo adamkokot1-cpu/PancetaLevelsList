@@ -76,6 +76,29 @@ namespace {
 
     bool byPosition(ListLevel const* a, ListLevel const* b) { return a->position < b->position; }
     bool byUpllPosition(ListLevel const* a, ListLevel const* b) { return a->upllPosition < b->upllPosition; }
+
+    constexpr int MAX_RETRIES = 4;
+    bool s_prefetching = false;
+}
+
+void PLLPopup::prefetch() {
+    if (s_cache[0] || s_prefetching) return;
+    auto base = apiBase(false);
+    if (base.empty()) return;
+
+    s_prefetching = true;
+    auto req = web::WebRequest();
+    req.userAgent("PancetaLevelsList Geode mod");
+    async::spawn(
+        req.get(base + "/levels"),
+        [](web::WebResponse res) {
+            s_prefetching = false;
+            if (!res.ok()) return;
+            auto parsed = res.json();
+            if (parsed.isErr()) return;
+            if (!s_cache[0]) s_cache[0] = parseList(parsed.unwrap());
+        }
+    );
 }
 
 PLLPopup* PLLPopup::create() {
@@ -179,6 +202,11 @@ void PLLPopup::onTab(CCObject* sender) {
 }
 
 void PLLPopup::onRefresh(CCObject*) {
+    m_retry = 0;
+    this->fetch();
+}
+
+void PLLPopup::onRetry(float) {
     this->fetch();
 }
 
@@ -229,6 +257,7 @@ void PLLPopup::clearList() {
 // Show cached data for the current tab right away, then fetch fresh data.
 void PLLPopup::showTab() {
     m_listener.cancel();
+    m_retry = 0;
     this->clearList();
 
     auto idx = static_cast<size_t>(m_tab);
@@ -272,17 +301,28 @@ void PLLPopup::onResponse(int tab, web::WebResponse const& res) {
     bool hasData = s_cache[idx].has_value();
 
     if (!res.ok()) {
-        std::string err = res.code() == 0
-            ? std::string("Network error")
+        // code() < 0 is a connection error (e.g. -28 = timeout). Geode only waits 2.5s
+        // to connect, so slow first connections are common: retry a few times.
+        if (res.code() <= 0 && m_retry < MAX_RETRIES) {
+            m_retry++;
+            this->setUpdated(fmt::format("Slow connection, retrying ({}/{})...", m_retry, MAX_RETRIES));
+            if (!hasData) this->setStatus("Connecting...");
+            this->scheduleOnce(schedule_selector(PLLPopup::onRetry), 1.5f * m_retry);
+            return;
+        }
+
+        std::string err = res.code() <= 0
+            ? fmt::format("Connection error: {}", res.errorMessage())
             : fmt::format("Error HTTP {}", res.code());
         if (hasData) {
             this->setUpdated(fmt::format("{} - showing data from {}", err, s_cache[idx]->fetchedAt));
         } else {
             this->setUpdated("");
-            this->setStatus(err + ".\nPress refresh to try again.");
+            this->setStatus(err + "\nPress refresh to try again.");
         }
         return;
     }
+    m_retry = 0;
 
     auto parsed = res.json();
     if (parsed.isErr()) {

@@ -15,6 +15,7 @@ protected:
     CCLabelBMFont* m_status = nullptr;
     CCLabelBMFont* m_updated = nullptr;
     std::vector<std::string> m_videos;
+    int m_retry = 0;
 
     bool initPopup(std::string const& url, std::string const& levelName);
 
@@ -22,6 +23,7 @@ protected:
     void onResponse(web::WebResponse const& res);
     void onRefresh(CCObject*);
     void onAutoRefresh(float);
+    void onRetry(float);
     void onVideo(CCObject* sender);
     void setStatus(std::string const& text);
 

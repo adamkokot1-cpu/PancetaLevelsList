@@ -53,12 +53,14 @@ protected:
     std::vector<std::string> m_videos;
     std::vector<ListLevel> m_rowLevels;
     std::string m_shownSignature;
+    int m_retry = 0;
 
     bool initPopup();
 
     void onTab(CCObject* sender);
     void onRefresh(CCObject*);
     void onAutoRefresh(float);
+    void onRetry(float);
     void onView(CCObject* sender);
     void onVideo(CCObject* sender);
     void onVictors(CCObject* sender);
@@ -76,4 +78,6 @@ protected:
 
 public:
     static PLLPopup* create();
+    // Download the PLL list in the background (called from the main menu)
+    static void prefetch();
 };

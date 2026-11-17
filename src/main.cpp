@@ -20,6 +20,9 @@ class $modify(PLLMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
 
+        // Warm up the connection and download the list in the background
+        PLLPopup::prefetch();
+
         if (auto menu = this->getChildByID("bottom-menu")) {
             menu->addChild(createPLLButton(this, menu_selector(PLLMenuLayer::onPLL)));
             menu->updateLayout();

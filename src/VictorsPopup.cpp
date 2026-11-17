@@ -80,6 +80,11 @@ void VictorsPopup::setStatus(std::string const& text) {
 }
 
 void VictorsPopup::onRefresh(CCObject*) {
+    m_retry = 0;
+    this->fetch();
+}
+
+void VictorsPopup::onRetry(float) {
     this->fetch();
 }
 
@@ -107,11 +112,22 @@ void VictorsPopup::fetch() {
 
 void VictorsPopup::onResponse(web::WebResponse const& res) {
     if (!res.ok()) {
-        m_updated->setString(res.code() == 0
-            ? "Network error - will retry"
-            : fmt::format("Error HTTP {} - will retry", res.code()).c_str());
+        if (res.code() <= 0 && m_retry < 4) {
+            m_retry++;
+            m_updated->setString(fmt::format("Slow connection, retrying ({}/4)...", m_retry).c_str());
+            this->scheduleOnce(schedule_selector(VictorsPopup::onRetry), 1.5f * m_retry);
+            return;
+        }
+        std::string err = res.code() <= 0
+            ? fmt::format("Connection error: {}", res.errorMessage())
+            : fmt::format("Error HTTP {}", res.code());
+        m_updated->setString(err.c_str());
+        if (m_scroll->m_contentLayer->getChildrenCount() == 0) {
+            this->setStatus("Could not load victors.\nPress refresh to try again.");
+        }
         return;
     }
+    m_retry = 0;
     auto parsed = res.json();
     if (parsed.isErr()) {
         m_updated->setString("Could not read data");

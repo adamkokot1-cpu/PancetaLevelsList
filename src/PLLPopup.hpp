@@ -18,6 +18,8 @@ struct ListLevel {
     std::string category;   // "hardest", "high", "mid", "low", "extended", "upll"
     std::string video;
     int gdId = 0;
+    std::string difficulty; // "easy" ... "extreme-demon"
+    std::string rating;     // "rate", "feature", "epic", "legendary", "mythic"
     double points = 0;
     double upllPoints = 0;
     int requirement = 0;

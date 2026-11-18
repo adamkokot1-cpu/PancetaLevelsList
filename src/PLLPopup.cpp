@@ -43,13 +43,15 @@ namespace {
                 lvl.category = jstr(l, "category");
                 lvl.video = jstr(l, "video_url");
                 lvl.gdId = jint(l, "gd_level_id");
+                lvl.difficulty = jstr(l, "gd_difficulty");
+                lvl.rating = jstr(l, "gd_rating");
                 lvl.points = jnum(l, "points");
                 lvl.upllPoints = jnum(l, "upll_points");
                 lvl.requirement = jint(l, "requirement");
                 lvl.completions = jint(l, "completions");
                 if (lvl.name.empty()) continue;
 
-                data.signature += fmt::format("{}|{}|{}|{}|{:.2f};", lvl.siteId, lvl.name, lvl.position, lvl.completions, lvl.points);
+                data.signature += fmt::format("{}|{}|{}|{}|{:.2f}|{}|{};", lvl.siteId, lvl.name, lvl.position, lvl.completions, lvl.points, lvl.difficulty, lvl.rating);
                 data.levels.push_back(std::move(lvl));
             }
         }
@@ -72,6 +74,30 @@ namespace {
             case 3: return { 215, 140, 70 };
             default: return { 255, 255, 255 };
         }
+    }
+
+    // GJDifficultySprite frame index (same numbering GD uses for difficulty_XX_btn_001.png)
+    int difficultyFrame(std::string const& d) {
+        if (d == "auto") return -1;
+        if (d == "easy") return 1;
+        if (d == "normal") return 2;
+        if (d == "hard") return 3;
+        if (d == "harder") return 4;
+        if (d == "insane") return 5;
+        if (d == "hard-demon" || d == "demon") return 6;
+        if (d == "easy-demon") return 7;
+        if (d == "medium-demon") return 8;
+        if (d == "insane-demon") return 9;
+        if (d == "extreme-demon") return 10;
+        return 0; // N/A
+    }
+
+    GJFeatureState featureState(std::string const& r) {
+        if (r == "feature" || r == "featured") return GJFeatureState::Featured;
+        if (r == "epic") return GJFeatureState::Epic;
+        if (r == "legendary") return GJFeatureState::Legendary;
+        if (r == "mythic") return GJFeatureState::Mythic;
+        return GJFeatureState::None;
     }
 
     bool byPosition(ListLevel const* a, ListLevel const* b) { return a->position < b->position; }
@@ -452,18 +478,27 @@ CCNode* PLLPopup::createRow(ListLevel const& level, float width, bool alt) {
     auto rankText = upllOnly ? fmt::format("U{}", level.upllPosition) : fmt::format("#{}", level.position);
     auto rank = CCLabelBMFont::create(rankText.c_str(), "bigFont.fnt");
     rank->setScale(.5f);
-    rank->limitLabelWidth(40.f, .5f, .2f);
+    rank->limitLabelWidth(34.f, .5f, .2f);
     rank->setAnchorPoint({ 0.f, .5f });
     rank->setPosition({ 7.f, ROW_H / 2.f });
     rank->setColor(upllOnly ? ccColor3B { 255, 90, 90 } : rankColor(level.position));
     node->addChild(rank);
 
+    // Difficulty face (GD's own sprite, incl. feature / epic / legendary glow)
+    auto face = GJDifficultySprite::create(difficultyFrame(level.difficulty), GJDifficultyName::Short);
+    if (face) {
+        face->updateFeatureState(featureState(level.rating));
+        face->setScale(.42f);
+        face->setPosition({ 64.f, ROW_H / 2.f });
+        node->addChild(face);
+    }
+
     // Name
     auto name = CCLabelBMFont::create(level.name.c_str(), "bigFont.fnt");
     name->setAnchorPoint({ 0.f, .5f });
     name->setScale(.45f);
-    name->limitLabelWidth(175.f, .45f, .15f);
-    name->setPosition({ 50.f, ROW_H * .66f });
+    name->limitLabelWidth(140.f, .45f, .15f);
+    name->setPosition({ 84.f, ROW_H * .66f });
     node->addChild(name);
 
     // Publisher / verifier
@@ -472,9 +507,9 @@ CCNode* PLLPopup::createRow(ListLevel const& level, float width, bool alt) {
     auto sub = CCLabelBMFont::create(subText.c_str(), "chatFont.fnt");
     sub->setAnchorPoint({ 0.f, .5f });
     sub->setScale(.5f);
-    sub->limitLabelWidth(195.f, .5f, .15f);
+    sub->limitLabelWidth(125.f, .5f, .15f);
     sub->setColor({ 200, 200, 200 });
-    sub->setPosition({ 50.f, ROW_H * .27f });
+    sub->setPosition({ 84.f, ROW_H * .27f });
     node->addChild(sub);
 
     // Points
@@ -496,7 +531,7 @@ CCNode* PLLPopup::createRow(ListLevel const& level, float width, bool alt) {
         : fmt::format("{} victors >", level.completions);
     auto stats = CCLabelBMFont::create(statText.c_str(), "chatFont.fnt");
     stats->setScale(.45f);
-    stats->limitLabelWidth(110.f, .45f, .15f);
+    stats->limitLabelWidth(95.f, .45f, .15f);
     stats->setColor({ 120, 200, 255 });
     auto statsBtn = CCMenuItemSpriteExtra::create(stats, this, menu_selector(PLLPopup::onVictors));
     statsBtn->setTag(static_cast<int>(m_rowLevels.size()));
